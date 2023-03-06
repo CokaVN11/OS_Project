@@ -11,28 +11,56 @@
 #     print(f"Options: {partition.opts}")
 #     print(f"Usage: {psutil.disk_usage(partition.mountpoint)}")
 #     print("---------------------------")
-from tkinter import *
+import io
+import tkinter as tk
 from tkinter import filedialog
+from tkinter import messagebox
+from math import floor, ceil
+from PIL import Image, ImageTk
 
 def browseFiles():
     filename = filedialog.askdirectory(initialdir= "/", title="Select a Disk")
-    label_file_explorer.configure(text = "File Opened: " + filename)
+    # if not filename.endswith(":/"):
+        # label_file_explorer.configure(text = "File Opened: " + filename)
+def convert_size(window, original_size):
+    return floor((window.frameWidth * original_size) / 1600)
 
-window = Tk()
-window.title('File Explorer')
-window.geometry('500x500')
-window.config(background='white')
-label_file_explorer = Label(window, text = 'File Explorer', width= 100, height=4, fg='blue')
-button_explore = Button(window,
-                        text = "Browse Files",
-                        command = lambda: browseFiles())
 
-button_exit = Button(window,
-                     text = "Exit",
-                     command = exit)
+def convert_image(window, path, original_width, original_height):
+    original_image = Image.open(path)
+    resized_image = original_image.resize(
+        (convert_size(window, original_width), convert_size(window, original_height))
+    )
+    converted_image = ImageTk.PhotoImage(resized_image)
+    return converted_image
 
-label_file_explorer.grid(column = 0, row = 1)
-button_explore.grid(column = 0, row = 2)
-button_exit.grid(column = 0, row = 3)
 
-window.mainloop()
+def convert_image_from_byte(window, data, original_width, original_height):
+    original_image = Image.open(io.BytesIO(data))
+    resized_image = original_image.resize(
+        (convert_size(window, original_width), convert_size(window, original_height))
+    )
+    converted_image = ImageTk.PhotoImage(resized_image)
+    return converted_image
+
+class App(tk.Tk):
+    def __init__(self, *args, **kwargs):
+        tk.Tk.__init__(self, *args, **kwargs)
+        self.focus_force()
+        self.grab_set()
+        self.title("Disk analysis")
+        self.geometry("500x500")
+
+        self.canvas = tk.Canvas(
+            self,
+            bg="#ffffff",
+            height=500,
+            width=500,
+            bd=0,
+            highlightthickness=0,
+            relief="ridge",
+        )
+        self.canvas.place(x=0, y=0)
+if __name__ == "__main__":
+    app = App()
+    app.mainloop()
