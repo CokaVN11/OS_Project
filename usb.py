@@ -180,8 +180,9 @@ class Drive:
 
         print(self.partitions[self.partition_number]['Property'])
 
-drive = Drive()
-drive.chooseUSB()
-drive.readMBR()
-drive.printPartition()
-drive.readPartition()
+if __name__ == "__main__":
+    drive = Drive()
+    drive.chooseUSB()
+    drive.readMBR()
+    drive.printPartition()
+    drive.readPartition()
