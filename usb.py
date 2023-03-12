@@ -46,6 +46,10 @@ class Drive:
         binary = bin((tmp ^ (2 ** (len(binary)+1) - 1)) + 1)[3:]
         return int(binary, 2)
 
+    @staticmethod
+    def detechFATNode(node):
+        node = bin(int.from_bytes(node, 'little'))
+
     def __init__(self):
         c = wmi.WMI()
         # --- Get usb ---
@@ -55,6 +59,8 @@ class Drive:
         self.disk_path = ''
         self.partitions = []
         self.partition_number = -1
+        self.fat_table = []
+        self.entry_size = 32
 
         for drive in c.Win32_DiskDrive():
             if drive.MediaType == 'Removable Media':
@@ -138,7 +144,7 @@ class Drive:
                 "RDETCluster": int.from_bytes(boot_sector[int('2C', 16): int('2C', 16) + 4], 'little'),
                 "Type": boot_sector[int('52', 16): int('52', 16) + 8]
             }
-            self.partitions[self.partition_number]['Property']= prop
+            self.partitions[self.partition_number]['Property'] = prop
 
     def readNTFS(self):
         if self.partitions[self.partition_number]['Type'] != 'NTFS':
@@ -159,7 +165,7 @@ class Drive:
                 "MFTBackupCluster": int.from_bytes(boot_sector[int('38', 16): int('38', 16) + 8], 'little'),
                 "BytePerEntry": 2 ** self.convert2Complement(boot_sector[int('40', 16)])
             }
-            self.partitions[self.partition_number]['Property']= prop
+            self.partitions[self.partition_number]['Property'] = prop
 
     def readPartition(self):
         if len(self.partitions) <= 0:
@@ -180,9 +186,56 @@ class Drive:
 
         print(self.partitions[self.partition_number]['Property'])
 
+    def readTable(self):
+        begin_sector = self.partitions[self.partition_number]['SecBegin']
+        table_sector = begin_sector + self.partitions[self.partition_number]['Property']['SectorBeforeFat']
+        table_index = table_sector * self.bytesPerSector
+
+        with open(self.disk_path, 'rb') as f:
+            f.seek(table_index)
+            tmp = 1
+            i = table_index
+            while tmp != 0:
+                tmp = int.from_bytes(f.read(4), 'little')
+                if (tmp == 0):
+                    break
+                if ('{:08x}'.format(tmp)[1:] >= 'ffffff8' and '{:08x}'.format(tmp)[1:] <= 'fffffff'):
+                    self.fat_table.append('end')
+                else: self.fat_table.append(tmp)
+                i += 4
+                f.seek(i)
+
+        # self.fat_list = []
+
+        # for i,x in enumerate(self.fat_table):
+        #     print(x, end= " ")
+        #     if (i % 4 == 3):
+                # print()
+
+        def readRDET(self):
+            self.rdet_table = []
+            begin_sector = self.partitions[self.partition_number]['SecBegin']
+            fat_sector = self.partitions[self.partition_number]['Property']['SectorBeforeFat']
+            rdet_sector = begin_sector + fat_sector + self.partitions[self.partition_number]['Property']['SectorPerFat'] * 2
+            rdet_index = rdet_sector * self.bytePerSector
+            with open(self.disk_path, 'rb') as f:
+                for i in range(0, len(self.fat_table)):
+                    f.seek(rdet_index)
+                    entry = f.read(32)
+                    entry_prop = {
+                        "name": entry[int('00', 16): int('00', 16) + 8],
+                        "ext":  entry[int('08', 16): int('08', 16) + 3],
+                        "type": entry[int('0b',16)],
+                        "hour": entry[int('0d', 16): int('0d',16) + 3],
+                        "day":  entry[int('10', 16): int('10', 16) + 2],
+                        "cluster_begin": entry[int('1a', 16): int('1a', 16) + 2],
+                        "size": entry[int('1c', 16): int('1c', 16) + 4]
+                    }
+
 if __name__ == "__main__":
     drive = Drive()
     drive.chooseUSB()
     drive.readMBR()
     drive.printPartition()
     drive.readPartition()
+    drive.readTable()
