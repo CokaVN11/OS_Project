@@ -1,0 +1,18 @@
+device: -- array of usb plug in
+    partition: -- array of partition in an usb
+    + FAT32 -- class con
+        entryFAT32
+    + NTFS -- class con
+        entryNTFS: -- tap tin/ thu muc thuoc partition
+
+# utils
+convertCHS(CHS_byte) -- lay thong tin head, sector, cyclinder tu day byte
+convertPartitionType(type_byte) -- lay thong tin loai partition
+convert2Complement(num) -- tim bu 2 cua so truyen vao
+
+# note:
+có nhiều usb, mỗi usb <-> 1 device
+1 device có nhiều partition -> class device có
+array chứa partition (virtual class có 2 loại FAT32 và NTFS)
+trong FAT32, NTFS: có cây của các entry thuộc loại tương ứng (cây thư mục)
+class entry có chứa thuộc tính
