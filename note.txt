@@ -1,4 +1,4 @@
-device: -- array of usb plug in
+device: -- usb
     partition: -- array of partition in an usb
     + FAT32 -- class con
         entryFAT32
