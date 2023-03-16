@@ -16,3 +16,9 @@ có nhiều usb, mỗi usb <-> 1 device
 array chứa partition (virtual class có 2 loại FAT32 và NTFS)
 trong FAT32, NTFS: có cây của các entry thuộc loại tương ứng (cây thư mục)
 class entry có chứa thuộc tính
+
+# entry của FAT32
+check type của entry
+- Folder:
+    vào cluster b.dầu đọc sub_rdet
+- Khác: đọc thông tin -> dừng
