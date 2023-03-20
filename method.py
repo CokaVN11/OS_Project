@@ -1,19 +1,4 @@
-import itertools
-import re
-import sys
-from io import BufferedReader
-
 from wmi import WMI
-
-# code for scripting non-printable character
-all_chars = (chr(i) for i in range(sys.maxunicode))
-categories = {'Cc'}
-control_chars = ''.join(map(chr, itertools.chain(range(0x00, 0x20), range(0x7f, 0xa0))))
-control_char_re = re.compile('[%s]' % re.escape(control_chars))
-
-
-def remove_control_chars(s):
-    return control_char_re.sub('', s)
 
 
 def get_usb():
@@ -59,42 +44,37 @@ class Device:
     __name = ""
     __path = ""
     __partitions = []
-    __disk = None
 
     def __init__(self, name, path):
         self.__name = name
-        self.__path = path
+        self.__path = path.replace('\\', '/')
 
         # read master boot record
-        self.__disk = open(self.__path, "rb")
-        mbr = self.__disk.read(512)
-        i = 0
-        while i < 4:
-            index = int("1be", 16) + i * 16
-            sec_begin = int.from_bytes(mbr[index + int("08", 16): index + int("08", 16) + 4], "little")
-            if sec_begin <= 0:
-                break  # reach the end of partition table
-            status = "bootable" if "{:02x}".format(mbr[index]) == "80" else "non-bootable"
-            chs_begin = convert_chs(mbr[index + int("01", 16): index + int("01", 16) + 3])
-            chs_end = convert_chs(mbr[index + int("05", 16): index + int("05", 16) + 3])
-            partition_type = convert_type(mbr[index + int("04", 16)])
-            number_sector = int.from_bytes(mbr[index + int("0C", 16): index + int("0C", 16) + 4], "little")
+        # mbr = read_sector(self.__path, 0, 512)
+        with open(self.__path, "rb") as disk:
+            mbr = disk.read(512)
+            i = 0
+            while i < 4:
+                index = int("1be", 16) + i * 16
+                sec_begin = int.from_bytes(mbr[index + int("08", 16): index + int("08", 16) + 4], "little")
+                if sec_begin <= 0:
+                    break  # reach the end of partition table
+                status = "bootable" if "{:02x}".format(mbr[index]) == "80" else "non-bootable"
+                chs_begin = convert_chs(mbr[index + int("01", 16): index + int("01", 16) + 3])
+                chs_end = convert_chs(mbr[index + int("05", 16): index + int("05", 16) + 3])
+                partition_type = convert_type(mbr[index + int("04", 16)])
+                number_sector = int.from_bytes(mbr[index + int("0C", 16): index + int("0C", 16) + 4], "little")
 
-            if partition_type == "FAT32":
-                self.__partitions.append(
-                    FAT32(status, chs_begin, chs_end, partition_type, sec_begin, number_sector, self.__disk)
-                )
-                # self.__partitions[i].get_fat_table()
-            elif partition_type == "NTFS":
-                self.__partitions.append(
-                    NTFS(status, chs_begin, chs_end, partition_type, sec_begin, number_sector, self.__disk)
-                )
+                if partition_type == "FAT32":
+                    self.__partitions.append(
+                        FAT32(status, chs_begin, chs_end, partition_type, sec_begin, number_sector, self.__path)
+                    )
+                elif partition_type == "NTFS":
+                    self.__partitions.append(
+                        NTFS(status, chs_begin, chs_end, partition_type, sec_begin, number_sector, self.__path)
+                    )
 
-            i += 1
-
-    def __del__(self):
-        if not self.__disk.closed:
-            self.__disk.close()
+                i += 1
 
     def __repr__(self):
         return f"Device({self.__name},{self.__path},{repr(self.__partitions)})"
@@ -105,42 +85,28 @@ class Device:
 
 
 class Entry:
-    name = ""
-    long_name = ""
-    ext = ""
-    type = ""
-    time_created = ""
-    date_created = ""
-    cluster_begin = 0
-    entry_size = 0
-
     @staticmethod
     def convert_name(bytes):
         return bytes.decode('utf-8')
 
     @staticmethod
     def convert_long_name(bytes):
-        ret_arr = bytearray(bytes[1:11])
-        ret_arr += bytearray(bytes[int('0e', 16): int('0e', 16) + 12])
-        ret_arr += bytearray(bytes[int('1c', 16): int('1c', 16) + 4])
+        # bytes = list(int.from_bytes(bytes[i: i + 2], "little") for i in range(0, len(bytes), 2))
+        byte_array = bytearray(bytes[1:11])
+        byte_array += bytearray(bytes[int('0e', 16):int('0e', 16) + 12])
+        byte_array += bytearray(bytes[int('1c', 16):int('1c', 16) + 4])
 
-        try:
-            ret_arr.remove(int(b'00', 16))
-        except ValueError:
-            pass
-        try:
-            ret_arr.remove(int(b'ff', 16))
-        except ValueError:
-            pass
+        ret = ""
+        for i in reversed(range(0, len(byte_array), 2)):
+            tmp = byte_array[i:i + 2]
+            if tmp == b'\x00\x00' or tmp == b'\xff\xff':
+                continue
+            ret = tmp.decode('utf-16-le') + ret
 
-        ret = ret_arr.decode("utf-16")
         return ret
 
     @staticmethod
     def convert_time(bytes):
-        # bytes = int.from_bytes(bytes, "little")
-        # if bytes == 0: return ""
-        # bytes = bin(bytes)
         bytes = ''.join("{:08b}".format(x) for x in bytes[::-1])
         hour = int(bytes[0:5], 2)
         minute = int(bytes[5:12], 2)
@@ -176,11 +142,11 @@ class Entry:
             ret.append('ReadOnly')
         return ret
 
-    def __init__(self, name, long_name, ext, type, time_created, date_created, cluster_begin, size) -> None:
+    def __init__(self, name, long_name, ext, entry_type, time_created, date_created, cluster_begin, size):
         self.name = name
         self.long_name = long_name
         self.ext = ext
-        self.type = type
+        self.entry_type = entry_type
         self.time_created = time_created
         self.date_created = date_created
         self.cluster_begin = cluster_begin
@@ -192,34 +158,26 @@ class Folder(Entry):
     sub_rdet_index = 0
     sub_entry = None
 
-    def __init__(self, name, ext, type, time_created, date_created, cluster_begin, entry_size, sub_rdet_index):
-        super().__init__(name, ext, type, time_created, date_created, cluster_begin, entry_size)
-        self.sub_rdet_index = sub_rdet_index
+    def __init__(self, name, long_name, ext, entry_type, time_created, date_created, cluster_begin, entry_size,
+                 sub_entry):
+        super().__init__(name, long_name, ext, entry_type, time_created, date_created, cluster_begin, entry_size)
+        self.sub_entry = sub_entry
+
+    def set_sub_entry(self, sub_entry):
+        self.sub_entry = sub_entry
 
 
 class Partition:
-    _bytes_per_sector = None
-    _status = ""
-    _chs_begin = None
-    _chs_end = None
-    _type = ""
-    _sector_begin = 0
-    _number_sector = 0
-    _disk: BufferedReader = None
-
-    def __init__(self, status, chs_begin, chs_end, partition_type, sec_begin, number_sector, disk):
+    def __init__(self, status, chs_begin, chs_end, partition_type, sec_begin, number_sector, path):
+        self._bytes_per_sector = 0
         self._status = status
         self._chs_begin = chs_begin
         self._chs_end = chs_end
         self._type = partition_type
         self._sector_begin = sec_begin
         self._number_sector = number_sector
-        self._disk = disk
+        self._path = path
         pass
-
-    def __del__(self):
-        if self._disk is not None and not self._disk.closed:
-            self._disk.close()
 
     def __repr__(self):
         return f"Partition({self._status}, " \
@@ -241,38 +199,27 @@ class Partition:
 
 
 class FAT32(Partition):
-    __sector_per_cluster = 0
-    __sector_per_fat = 0
-    __sector_before_fat = 0
-    __number_of_fat = 1
-    __volume_size = 0
-    __rdet_cluster = 0
-    __fat_type = ""
-    volume_name = ""
-    __table_sector = 0  # begin sector of FAT table
-    __fat_table = []  # an array storing info of RDET entry
-    __entry_list = []
-
-    def __init__(self, status, chs_begin, chs_end, partition_type, sec_begin, number_sector, disk):
-        super().__init__(status, chs_begin, chs_end, partition_type, sec_begin, number_sector, disk)
+    def __init__(self, status, chs_begin, chs_end, partition_type, sec_begin, number_sector, path):
+        super().__init__(status, chs_begin, chs_end, partition_type, sec_begin, number_sector, path)
         # Read Boot sector
-        self._disk.seek(self._sector_begin * 512)
-        boot_sector = self._disk.read(512)
-        self._bytes_per_sector = int.from_bytes(boot_sector[int("0B", 16): int("0B", 16) + 2], "little")
-        self.__sector_per_cluster = int(boot_sector[int("0D", 16)])
-        self.__sector_before_fat = int.from_bytes(boot_sector[int("0E", 16): int("0E", 16) + 2], "little")
-        self.__number_of_fat = int(boot_sector[int("10", 16)])
-        self.__volume_size = int.from_bytes(boot_sector[int("20", 16): int("20", 16) + 4], "little")
-        self.__sector_per_fat = int.from_bytes(boot_sector[int("24", 16): int("24", 16) + 4], "little")
-        self.__rdet_cluster = int.from_bytes(boot_sector[int("2C", 16): int("2C", 16) + 4], "little")
-        self.__fat_type = boot_sector[int("52", 16): int("52", 16) + 8].decode("utf-8")
+        with open(self._path, 'rb') as disk:
+            disk.seek(self._sector_begin * 512)
+            boot_sector = disk.read(512)
+            self._bytes_per_sector = int.from_bytes(boot_sector[int("0B", 16): int("0B", 16) + 2], "little")
+            self.__sector_per_cluster = int(boot_sector[int("0D", 16)])
+            self.__sector_before_fat = int.from_bytes(boot_sector[int("0E", 16): int("0E", 16) + 2], "little")
+            self.__number_of_fat = int(boot_sector[int("10", 16)])
+            self.__volume_size = int.from_bytes(boot_sector[int("20", 16): int("20", 16) + 4], "little")
+            self.__sector_per_fat = int.from_bytes(boot_sector[int("24", 16): int("24", 16) + 4], "little")
+            self.__rdet_cluster = int.from_bytes(boot_sector[int("2C", 16): int("2C", 16) + 4], "little")
+            self.__fat_type = boot_sector[int("52", 16): int("52", 16) + 8].decode("utf-8")
 
-        self.__table_sector = self._sector_begin + self.__sector_before_fat
-        self.__rdet_sector = self.__table_sector + self.__sector_per_fat * 2
-        # Read FAT table
-        self.__read_fat_table()
-        # Read RDET entry table
-        self.__read_rdet_table()
+            self.__table_sector = self._sector_begin + self.__sector_before_fat
+            self.__rdet_sector = self.__table_sector + self.__sector_per_fat * 2
+            # Read FAT table
+            self.__fat_table = self.__read_fat_table()
+            # Read RDET entry table
+            self.__entry_list = self.__read_rdet_entry(self.__rdet_sector)
 
     def __str__(self):
         prop = (
@@ -288,52 +235,88 @@ class FAT32(Partition):
         return super().__str__() + prop
 
     def __read_fat_table(self):
-        table_index = self.__table_sector * self._bytes_per_sector
-        self._disk.seek(table_index)
-        tmp = int.from_bytes(self._disk.read(4), "little")
-        while tmp != 0:
-            if "ffffff8" <= "{:08x}".format(tmp)[1:] <= "fffffff":
-                self.__fat_table.append("end")
-            else:
-                self.__fat_table.append(tmp)
-            table_index += 4
-            self._disk.seek(table_index)
-            tmp = int.from_bytes(self._disk.read(4), "little")
+        fat_table = []
+        with open(self._path, "rb") as disk:
+            table_index = self.__table_sector * self._bytes_per_sector
+            # self._disk.seek(table_index)
+            disk.seek(table_index)
+            # tmp = int.from_bytes(self._disk.read(4), "little")
+            # tmp = int.from_bytes(read_sector(self._path, table_index, 4), "little")
+            tmp = int.from_bytes(disk.read(4), "little")
+            while tmp != 0:
+                if "ffffff8" <= "{:08x}".format(tmp)[1:] <= "fffffff":
+                    fat_table.append("end")
+                else:
+                    fat_table.append(tmp)
+                # table_index += 4
+                # self._disk.seek(table_index)
+                # tmp = int.from_bytes(read_sector(self._path, table_index, 4), "little")
+                tmp = int.from_bytes(disk.read(4), "little")
+        return fat_table
 
-    def __read_rdet_table(self):
-        rdet_index = self.__rdet_sector * self._bytes_per_sector
-        self._disk.seek(rdet_index)
-        entry_bytes = self._disk.read(32)
+    """Read rdet and return entry_list with directory queue"""
+
+    def __read_rdet_entry(self, sector):
+        entry_list = []
         tmp_lfn = ''
-        while "".join("{:x}".format(x) for x in entry_bytes[int("00", 16): int("00", 16) + 8]) != "00000000":
-            entry_type = Entry.convert_type(entry_bytes[int("0b", 16)])
-            if entry_type == 'LFN':
-                tmp_lfn = Entry.convert_long_name(entry_bytes[0:32]) + tmp_lfn
-            else:
-                entry_long_name = tmp_lfn
-                tmp_lfn = ''
-                entry_name = Entry.convert_name(entry_bytes[int("00", 16): int("00", 16) + 8])
-                entry_ext = entry_bytes[int("08", 16): int("08", 16) + 3].decode('utf-8')
-                entry_hour = Entry.convert_time(entry_bytes[int("0d", 16): int("0d", 16) + 3])
-                entry_day = Entry.convert_date(entry_bytes[int("10", 16): int("10", 16) + 2])
-                entry_cluster_begin = int.from_bytes(entry_bytes[int("1a", 16): int("1a", 16) + 2], 'little')
-                entry_size = int.from_bytes(entry_bytes[int("1c", 16): int("1c", 16) + 4], 'little')
 
-            rdet_index += 32
-            self._disk.seek(rdet_index)
-            entry_bytes = self._disk.read(32)
+        entry_name = None
+        entry_long_name = None
+        entry_ext = None
+        entry_hour = None
+        entry_day = None
+        entry_cluster_begin = None
+        entry_size = None
 
-            if 'VolLabel' in entry_type:
-                self.volume_name = entry_name
-                continue
+        sector_index = sector * self._bytes_per_sector
+        with open(self._path, 'rb') as disk:
+            if disk.tell() != sector_index:
+                disk.seek(sector_index)
+            entry_bytes = disk.read(32)
 
+            while entry_bytes[int('0b', 16)] != 0:
+                # deleted file
+                if not entry_bytes[0] == int('e5', 16):
+                    entry_type = Entry.convert_type(entry_bytes[int("0b", 16)])
+                    if entry_type == 'LFN':
+                        tmp_lfn = Entry.convert_long_name(entry_bytes[0:32]) + tmp_lfn
+                    else:
+                        entry_long_name = tmp_lfn
+                        tmp_lfn = ''
+                        entry_name = Entry.convert_name(entry_bytes[int("00", 16): int("00", 16) + 8])
+                        entry_ext = entry_bytes[int("08", 16): int("08", 16) + 3].decode('utf-8')
+                        entry_hour = Entry.convert_time(entry_bytes[int("0d", 16): int("0d", 16) + 3])
+                        entry_day = Entry.convert_date(entry_bytes[int("10", 16): int("10", 16) + 2])
+                        entry_cluster_begin = int.from_bytes(entry_bytes[int("1a", 16): int("1a", 16) + 2], 'little')
+                        entry_size = int.from_bytes(entry_bytes[int("1c", 16): int("1c", 16) + 4], 'little')
+                        if 'VolLabel' in entry_type:
+                            self.volume_name = entry_name
+                        elif 'Directory' in entry_type:
+                            next_sector = self.__rdet_sector + (entry_cluster_begin - 2) * self.__sector_per_cluster
+                            if entry_cluster_begin != 0 and next_sector != sector:
+                                entry_sub_list = self.__read_rdet_entry(next_sector)
+                                entry_list.append(
+                                    Folder(entry_name, entry_long_name, entry_ext, entry_type, entry_hour, entry_day,
+                                           entry_cluster_begin, entry_size, entry_sub_list))
+
+                        elif 'Archive' in entry_type:
+                            entry_list.append(
+                                Entry(entry_name, entry_long_name, entry_ext, entry_type, entry_hour, entry_day,
+                                      entry_cluster_begin, entry_size))
+
+                sector_index += 32
+                if disk.tell() != sector_index:
+                    disk.seek(sector_index)
+                # entry_bytes = read_sector(self._path, __sector_index, 32)
+                entry_bytes = disk.read(32)
+            return entry_list
         pass
 
     def get_fat_table(self):
-        for i, x in enumerate(self.__fat_table):
-            print(x, end=" ")
-            if i % 4 == 3:
-                print()
+        return self.__fat_table
+
+    def get_entry_list(self):
+        return self.__entry_list
 
 
 class NTFS(Partition):
@@ -345,19 +328,20 @@ class NTFS(Partition):
     __MFT_backup_cluster = 0
     __byte_per_entry = 0
 
-    def __init__(self, status, chs_begin, chs_end, partition_type, sec_begin, number_sector, disk):
-        super().__init__(status, chs_begin, chs_end, partition_type, sec_begin, number_sector, disk)
+    def __init__(self, status, chs_begin, chs_end, partition_type, sec_begin, number_sector, path):
+        super().__init__(status, chs_begin, chs_end, partition_type, sec_begin, number_sector, path)
         # Read VBR
-        self._disk.seek(self._sector_begin * 512)
-        vbr = self._disk.read(512)
-        self._bytes_per_sector = int.from_bytes(vbr[int("0B", 16): int("0B", 16) + 2], "little")
-        self.__sector_per_cluster = int(vbr[int("0D", 16)])
-        self.__sector_per_track = int.from_bytes(vbr[int("18", 16): int("18", 16) + 2], "little")
-        self.__number_head = int.from_bytes(vbr[int("1A", 16): int("1A", 16) + 2], "little")
-        self.__number_sector = int.from_bytes(vbr[int("28", 16): int("28", 16) + 8], "little")
-        self.__MFT_cluster = int.from_bytes(vbr[int("30", 16): int("30", 16) + 8], "little")
-        self.__MFT_backup_cluster = int.from_bytes(vbr[int("38", 16): int("38", 16) + 8], "little")
-        self.__byte_per_entry = 2 ** convert2_complement(vbr[int("40", 16)])
+        with open(self._path, 'rb') as disk:
+            disk.seek(self._sector_begin * 512)
+            vbr = disk.read(512)
+            self._bytes_per_sector = int.from_bytes(vbr[int("0B", 16): int("0B", 16) + 2], "little")
+            self.__sector_per_cluster = int(vbr[int("0D", 16)])
+            self.__sector_per_track = int.from_bytes(vbr[int("18", 16): int("18", 16) + 2], "little")
+            self.__number_head = int.from_bytes(vbr[int("1A", 16): int("1A", 16) + 2], "little")
+            self.__number_sector = int.from_bytes(vbr[int("28", 16): int("28", 16) + 8], "little")
+            self.__MFT_cluster = int.from_bytes(vbr[int("30", 16): int("30", 16) + 8], "little")
+            self.__MFT_backup_cluster = int.from_bytes(vbr[int("38", 16): int("38", 16) + 8], "little")
+            self.__byte_per_entry = 2 ** convert2_complement(vbr[int("40", 16)])
         pass
 
     def __str__(self):
