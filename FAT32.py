@@ -118,6 +118,15 @@ class Entry:
             return True
         return False
 
+    def get_info(self):
+        prop = (
+            f"Name: {self.get_name()}\n"
+            f"Date created: {self.date_created}\n"
+            f"Time created: {self.time_created}\n"
+            f"Size: {self.entry_size}\n"
+        )
+        return prop
+
 class FAT32:
     def __init__(self, status, chs_begin, chs_end, partition_type, sec_begin, number_sector, path):
         self._status = status
@@ -242,6 +251,29 @@ class FAT32:
 
     def get_entry_list(self):
         return self.__entry_list
+
+    def get_entry(self, name):
+        stack = [(None, self.get_entry_list())]
+        for parent, entry_list in stack:
+            for entry in entry_list:
+                if entry.get_name() == name:
+                    return entry
+                if entry.is_dir:
+                    stack.append((entry, entry.get_entry_list()))
+        return None
+
+    def get_info(self):
+        prop = (
+            f"Bytes per Sector: {self.bytes_per_sector}\n"
+            f"Sector per Cluster: {self.sector_per_cluster}\n"
+            f"Sector before FAT: {self.sector_before_fat}\n"
+            f"Number of FAT: {self.number_of_fat}\n"
+            f"Volume size:  {self.volume_size}\n"
+            f"Sector per FAT: {self.sector_per_fat}\n"
+            f"RDET cluster: {self.rdet_cluster}\n"
+            f"Type: {self.fat_type}\n"
+        )
+        return prop
 
     def get_name(self):
         return self.volume_name

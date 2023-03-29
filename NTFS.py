@@ -156,6 +156,15 @@ class Entry:
                 f"Init size: {self.init_size}\n"
         return self.str
 
+    def get_info(self):
+        prop = (
+            f"Name: {self.name}\n"
+            f"Attribute: {self.properties}\n"
+            f"Date create: {self.create_time}\n"
+            f"Size: {self.data_real_size}\n"
+        )
+        return prop
+
 class NTFS:
     @staticmethod
     def convert2_complement(num):
@@ -260,10 +269,32 @@ class NTFS:
 
 
         self.__entry_list = tmp_list
-        self.print_entry_list()
+        # self.print_entry_list()
 
     def get_entry_list(self):
         return self.__entry_list
+
+    def get_entry(self, name):
+        stack = [(None, self.get_entry_list())]
+        for parent, entry_list in stack:
+            for entry in entry_list:
+                if entry.get_name() == name:
+                    return entry
+                if entry.is_dir:
+                    stack.append((entry, entry.get_entry_list()))
+        return None
+
+    def get_info(self):
+        prop = (
+            f"Bytes per sector: {self.bytes_per_sector}\n"
+            f"Sectors per cluster: {self.sector_per_cluster}\n"
+            f"Sectors per track: {self.sector_per_track}\n"
+            f"Number of heads: {self.number_head}\n"
+            f"Number of sectors: {self.number_sector}\n"
+            f"MFT cluster: {self.MFT_cluster}\n"
+            f"MFT backup cluster: {self.MFT_backup_cluster}\n"
+        )
+        return prop
 
     def print_entry_list(self):
         for entry in self.__entry_list:

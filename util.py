@@ -9,6 +9,8 @@ def get_usb():
     for drive in _drives:
         if drive.MediaType == "Removable Media":
             _usb.append(Device(name=drive.Caption, path=drive.DeviceID))
+    if len(_usb) == 0:
+        return None
     return _usb
 
 class Device:
