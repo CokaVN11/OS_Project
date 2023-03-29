@@ -157,7 +157,8 @@ class InfoFrame(ctk.CTkFrame):
 #                        fg_color=bg_colour)
 #         # self.pack(side=ctk.TOP)
 
-
+def rgb_hack(rgb):
+    return "#%02x%02x%02x" % rgb
 class App(ctk.CTk):
     def __init__(self):
         super().__init__()
@@ -212,7 +213,7 @@ class App(ctk.CTk):
         self.info = InfoFrame(master=self,
                               width=self.info_geometry['width'],
                               height=self.info_geometry['height'],
-                              bg_colour="pink")
+                              bg_colour=rgb_hack((201, 238, 255)))
         self.info.pack(side=ctk.RIGHT, fill=ctk.BOTH, expand=True)
 
     def optionmenu_callback(self, choice):
